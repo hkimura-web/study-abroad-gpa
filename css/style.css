@@ -96,11 +96,16 @@ table.res { border-collapse: collapse; width: 100%; background: #fff; font-size:
 
 .printhead { display: none; }
 @media (max-width: 760px) { .calgrid { grid-template-columns: 1fr; } .blend { grid-template-columns: 1fr; } main { padding: 12px; } }
+@page { size: A4 landscape; margin: 9mm; }
 @media print {
-  body { background: #fff; } .top, .no-print, .notice, .pick { display: none !important; }
+  body { background: #fff; font-size: 12px; line-height: 1.45; } .top, .no-print, #calwarn, .pick { display: none !important; }
   .tab { display: none !important; } #tab-single { display: block !important; }
-  main { padding: 0; max-width: none; } .panel { border: 0; padding: 0; }
-  .printhead { display: block; margin-bottom: 8px; font-size: 13px; }
-  .step { break-inside: avoid; } table.orig { font-size: 11px; min-width: 0; }
+  main { padding: 0; max-width: none; } .panel { border: 0; padding: 0; margin-bottom: 8px; }
+  .printhead { display: block; margin-bottom: 6px; font-size: 14px; }
+  .badge { font-size: 20px; padding: 3px 14px; } h2 { font-size: 13px; margin: 12px 0 5px; }
+  .step { break-inside: avoid; padding: 6px 10px; } .step.plain { padding: 3px 10px; }
+  .blend { margin-top: 4px; } .blend > div { padding: 3px 8px; font-size: 12px; }
+  .scroll { overflow: visible; } table.orig { font-size: 10.5px; min-width: 0; break-inside: avoid; }
+  .orig tr { break-inside: avoid; } .orig-sec { break-before: page; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
