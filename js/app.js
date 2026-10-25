@@ -5,16 +5,33 @@
   const KEY = 'ryugaku-seiseki.calendar.v1';
 
   /* ---------- 学校暦の保存 ---------- */
-  let cals = loadCals();
-  function loadCals() {
+  const GH_KEY = 'ryugaku-seiseki.github.v1';
+  const validCals = (o) => o && typeof o === 'object' && Object.keys(o).length > 0 && Object.values(o).every((c) => c && c.t1 && c.t2 && c.t3);
+  function loadDraft() {
     try {
       const s = localStorage.getItem(KEY);
-      if (s) { const o = JSON.parse(s); if (o && typeof o === 'object') return o; }
+      if (s) { const o = JSON.parse(s); if (validCals(o)) return o; }
     } catch (e) { /* 保存できない環境でも動く */ }
-    return CalendarDefault.build();
+    return null;
   }
-  function saveCals() { try { localStorage.setItem(KEY, JSON.stringify(cals)); } catch (e) { /* ignore */ } }
+  let hasDraft = !!loadDraft();            // このパソコンだけの未共有の変更
+  let sharedCals = null;                   // GitHub上の共有版 (data/calendar.json)
+  let cals = loadDraft() || CalendarDefault.build();
+  function saveCals() {
+    hasDraft = true;
+    try { localStorage.setItem(KEY, JSON.stringify(cals)); } catch (e) { /* ignore */ }
+    syncStatus();
+  }
   const isDefault = () => JSON.stringify(cals) === JSON.stringify(CalendarDefault.build());
+  function syncStatus() {
+    const el = document.getElementById('sync-status'); if (!el) return;
+    el.textContent = hasDraft ? 'この画面の変更は、このパソコンだけに保存されています。下のボタンでGitHubに保存すると、他のパソコンでも使えます。'
+      : sharedCals ? 'GitHubの共有版の学校暦を使っています。' : 'GitHubの共有版はまだありません（初期値を使用中）。';
+  }
+  function fetchShared() {
+    return fetch('data/calendar.json?t=' + Date.now(), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null)).then((o) => (validCals(o) ? o : null)).catch(() => null);
+  }
 
   /* ---------- 共通の表示部品 ---------- */
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -330,5 +347,58 @@
     cals = CalendarDefault.build(); saveCals(); calYear = null; renderCal(); renderSingle();
   });
 
+  /* ---------- GitHubで共有 ---------- */
+  function ghConf() { try { return JSON.parse(localStorage.getItem(GH_KEY)) || {}; } catch (e) { return {}; } }
+  function guessRepo() {
+    const m = location.hostname.match(/^(.+)\.github\.io$/), seg = location.pathname.split('/').filter(Boolean)[0] || '';
+    return { owner: m ? m[1] : '', repo: m && seg && !/\./.test(seg) ? seg : '' };
+  }
+  const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
+  function ghMsg(t, bad) { const e = $('sync-msg'); e.textContent = t; e.style.color = bad ? 'var(--danger)' : 'var(--sub)'; }
+  async function pushCals() {
+    const owner = $('gh-owner').value.trim(), repo = $('gh-repo').value.trim(), token = $('gh-token').value.trim() || ghConf().token;
+    if (!owner || !repo || !token) { ghMsg('アカウント名・リポジトリ名・トークンを入力してください', true); return; }
+    const api = `https://api.github.com/repos/${owner}/${repo}/contents/data/calendar.json`;
+    const h = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json' };
+    ghMsg('保存中…');
+    try {
+      let sha; const g = await fetch(api, { headers: h, cache: 'no-store' });
+      if (g.ok) sha = (await g.json()).sha;
+      else if (g.status === 401) throw new Error('トークンが正しくない、または期限切れです');
+      else if (g.status !== 404) throw new Error('GitHubに接続できません（' + g.status + '）。リポジトリ名とトークンの権限を確認してください');
+      const p = await fetch(api, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '学校暦を更新', content: b64(JSON.stringify(cals, null, 2) + '\n'), sha }) });
+      if (!p.ok) throw new Error(p.status === 404 || p.status === 403 ? '書き込めません。トークンの権限「Contents: Read and write」と、対象リポジトリの選択を確認してください' : '保存に失敗しました（' + p.status + '）');
+      localStorage.setItem(GH_KEY, JSON.stringify({ owner, repo, token }));
+      $('gh-token').value = '';
+      hasDraft = false; try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+      sharedCals = JSON.parse(JSON.stringify(cals)); syncStatus();
+      ghMsg('GitHubに保存しました。他のパソコンには1〜2分後に反映されます。');
+    } catch (err) { ghMsg(err.message, true); }
+  }
+  $('sync-push').addEventListener('click', pushCals);
+  $('sync-pull').addEventListener('click', async () => {
+    const o = await fetchShared();
+    if (!o) { ghMsg('共有版を読み込めませんでした', true); return; }
+    sharedCals = o; cals = JSON.parse(JSON.stringify(o)); hasDraft = false;
+    try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+    calYear = null; renderCal(); renderSingle(); syncStatus(); ghMsg('共有版を読み込みました');
+  });
+  $('sync-forget').addEventListener('click', () => {
+    try { localStorage.removeItem(GH_KEY); } catch (e) { /* ignore */ }
+    $('gh-token').value = ''; ghMsg('このパソコンからトークンを消しました');
+  });
+  (function initSync() {
+    const c = ghConf(), g = guessRepo();
+    $('gh-owner').value = c.owner || g.owner; $('gh-repo').value = c.repo || g.repo;
+    $('gh-token').placeholder = c.token ? '（保存済み。変えるときだけ入力）' : 'github_pat_…';
+    syncStatus();
+  })();
+
   renderSingle(); renderRef(); renderCal();
+  fetchShared().then((o) => {
+    sharedCals = o;
+    if (o && !hasDraft) { cals = JSON.parse(JSON.stringify(o)); calYear = null; renderCal(); renderSingle(); }
+    syncStatus();
+  });
 })();
