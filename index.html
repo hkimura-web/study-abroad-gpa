@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>留学生 成績処理ナビ</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -75,6 +78,32 @@
       <div id="cal-form"></div>
       <p id="cal-msg" class="small"></p>
       <p class="small">入力内容はこのブラウザに自動保存されます。学校全体で共有する場合は「書き出し」したJSONを共有するか、js/calendar-default.js を書き換えてください。</p>
+    </div>
+    <div class="panel" id="sync">
+      <h3 style="margin:0 0 6px;font-size:15px">GitHubで共有する（どのパソコンからでも同じ学校暦に）</h3>
+      <p id="sync-status" class="small" style="margin:0 0 10px"></p>
+      <div class="fields">
+        <label>GitHubのアカウント名<input id="gh-owner" type="text" autocomplete="off"></label>
+        <label>リポジトリ名<input id="gh-repo" type="text" autocomplete="off"></label>
+        <label>アクセストークン<input id="gh-token" type="password" autocomplete="off"></label>
+      </div>
+      <div class="row">
+        <button id="sync-push">学校暦をGitHubに保存</button>
+        <button id="sync-pull" class="ghost">GitHubの共有版を読み込む</button>
+        <button id="sync-forget" class="ghost danger">このパソコンからトークンを消す</button>
+      </div>
+      <p id="sync-msg" class="small"></p>
+      <details class="small">
+        <summary>アクセストークンの作り方（最初の1回だけ）</summary>
+        <ol>
+          <li>GitHubの右上のアイコン → Settings → 左下の Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</li>
+          <li>Token name：ryugaku-seiseki／Expiration：1年など</li>
+          <li>Repository access：Only select repositories → このアプリのリポジトリだけを選ぶ</li>
+          <li>Permissions → Repository permissions → Contents を Read and write にする</li>
+          <li>Generate token を押し、表示された github_pat_… をコピーして上の欄に貼る（この画面は一度しか出ません）</li>
+        </ol>
+        トークンは、入力したパソコンのこのブラウザにだけ保存されます。学校の共用パソコンでは、使い終わったら「トークンを消す」を押してください。トークンは他人に見せたり、チャットに貼ったりしないでください。
+      </details>
     </div>
   </section>
 </main>
