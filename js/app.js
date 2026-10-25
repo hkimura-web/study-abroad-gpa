@@ -140,7 +140,8 @@
     const depTxt = `${fmtFull(res.dep)}　${segName(o.dep.seg)}${o.dep.gap ? '（休業中）' : ''}`;
     const retTxt = `${fmtFull(res.ret)}　${segName(o.ret.seg)}${o.ret.gap ? '（休業中）' : ''}`;
     const months = (res.days / 30.4).toFixed(1).replace(/\.0$/, '');
-    let h = `<div class="panel"><div class="verdict"><div class="badge">${esc(type.label)}</div>
+    let h = `<div class="row no-print" style="justify-content:flex-end"><button data-print>PDFで保存・印刷</button></div>
+      <div class="panel"><div class="verdict"><div class="badge">${esc(type.label)}</div>
       <div><div class="ttl">${esc(type.title)}</div><div class="small" style="margin:0">${esc(type.period)}</div></div></div>
       <div class="flow"><div><b>出発</b>${esc(depTxt)}</div><div><b>帰国</b>${esc(retTxt)}</div><div><b>留学期間</b>${res.days}日（約${months}か月）</div></div>`;
     (res.notes || []).forEach((n) => { h += `<div class="notice" style="margin:10px 0 0">${esc(n)}</div>`; });
@@ -148,7 +149,7 @@
     h += '<h2>Blend入力の指示</h2>' + stepsHtml(type, baseY, res.dep, res.ret);
     h += '<h2>学年成績の扱い</h2>' + Object.values(type.groups).map((g) =>
       `<div class="grade"><span class="sw c-${g.color || 'none'}"></span><span>${esc(g.text)}</span></div>`).join('');
-    h += '<h2>早見表（該当行を強調）</h2>' + tableHtml(type, { baseY, highlight: true, dep: res.dep, ret: res.ret });
+    h += '<div class="orig-sec"><h2>早見表（該当行を強調）</h2>' + tableHtml(type, { baseY, highlight: true, dep: res.dep, ret: res.ret }) + '</div>';
     return h;
   }
 
@@ -291,7 +292,18 @@
   }
   $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
   ['f-name', 'f-dep', 'f-ret', 'f-exam'].forEach((id) => $(id).addEventListener('input', () => { if (id !== 'f-name') state.pick = null; renderSingle(); }));
-  $('result').addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) { state.pick = b.dataset.pick; renderSingle(); } });
+  $('result').addEventListener('click', (e) => {
+    if (e.target.closest('[data-print]')) { window.print(); return; }
+    const b = e.target.closest('[data-pick]'); if (b) { state.pick = b.dataset.pick; renderSingle(); }
+  });
+  // PDF保存時の初期ファイル名（ブラウザはタイトルをファイル名にする）
+  let oldTitle = document.title;
+  window.addEventListener('beforeprint', () => {
+    oldTitle = document.title;
+    const badge = document.querySelector('#result .badge'), nm = $('f-name').value.trim();
+    document.title = ['留学成績処理', nm, badge ? badge.textContent : ''].filter(Boolean).join('_');
+  });
+  window.addEventListener('afterprint', () => { document.title = oldTitle; });
   $('ref-chips').addEventListener('click', (e) => { const b = e.target.closest('[data-ref]'); if (b) { refId = b.dataset.ref; renderRef(); } });
 
   $('csv-file').addEventListener('change', (e) => {
