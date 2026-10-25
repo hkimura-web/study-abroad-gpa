@@ -140,7 +140,7 @@
     const depTxt = `${fmtFull(res.dep)}　${segName(o.dep.seg)}${o.dep.gap ? '（休業中）' : ''}`;
     const retTxt = `${fmtFull(res.ret)}　${segName(o.ret.seg)}${o.ret.gap ? '（休業中）' : ''}`;
     const months = (res.days / 30.4).toFixed(1).replace(/\.0$/, '');
-    let h = `<div class="row no-print" style="justify-content:flex-end"><button data-print>PDFで保存・印刷</button></div>
+    let h = `<div class="row no-print" style="justify-content:flex-end"><button data-save class="ghost">判定を保存（生徒一覧へ）</button><button data-print>PDFで保存・印刷</button></div>
       <div class="panel"><div class="verdict"><div class="badge">${esc(type.label)}</div>
       <div><div class="ttl">${esc(type.title)}</div><div class="small" style="margin:0">${esc(type.period)}</div></div></div>
       <div class="flow"><div><b>出発</b>${esc(depTxt)}</div><div><b>帰国</b>${esc(retTxt)}</div><div><b>留学期間</b>${res.days}日（約${months}か月）</div></div>`;
@@ -290,10 +290,15 @@
     document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('on', s.id === 'tab-' + name));
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
   }
-  $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+  $('tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    setTab(b.dataset.tab);
+    if (b.dataset.tab === 'students' && !SD.loaded && sdConf().token && sdConf().owner) sdConnect();
+  });
   ['f-name', 'f-dep', 'f-ret', 'f-exam'].forEach((id) => $(id).addEventListener('input', () => { if (id !== 'f-name') state.pick = null; renderSingle(); }));
   $('result').addEventListener('click', (e) => {
     if (e.target.closest('[data-print]')) { window.print(); return; }
+    if (e.target.closest('[data-save]')) { saveCurrent(); return; }
     const b = e.target.closest('[data-pick]'); if (b) { state.pick = b.dataset.pick; renderSingle(); }
   });
   // PDF保存時の初期ファイル名（ブラウザはタイトルをファイル名にする）
@@ -315,7 +320,7 @@
     const d = e.target.closest('[data-detail]');
     if (d) {
       const b = batchRows[+d.dataset.detail];
-      $('f-name').value = b.name; $('f-dep').value = b.dep; $('f-ret').value = b.ret; $('f-exam').value = b.ex; state.pick = null;
+      $('f-name').value = b.name; $('f-dep').value = b.dep; $('f-ret').value = b.ret; $('f-exam').value = b.ex; state.pick = null; state.currentId = null; $('save-msg').textContent = '';
       renderSingle(); setTab('single'); window.scrollTo(0, 0); return;
     }
     if (e.target.id === 'csv-out') {
@@ -381,7 +386,7 @@
       const p = await fetch(api, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: '学校暦を更新', content: b64(JSON.stringify(cals, null, 2) + '\n'), sha }) });
       if (!p.ok) throw new Error(p.status === 404 || p.status === 403 ? '書き込めません。トークンの権限「Contents: Read and write」と、対象リポジトリの選択を確認してください' : '保存に失敗しました（' + p.status + '）');
-      localStorage.setItem(GH_KEY, JSON.stringify({ owner, repo, token }));
+      localStorage.setItem(GH_KEY, JSON.stringify({ ...ghConf(), owner, repo, token }));
       $('gh-token').value = '';
       hasDraft = false; try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
       sharedCals = JSON.parse(JSON.stringify(cals)); syncStatus();
@@ -405,6 +410,119 @@
     $('gh-owner').value = c.owner || g.owner; $('gh-repo').value = c.repo || g.repo;
     $('gh-token').placeholder = c.token ? '（保存済み。変えるときだけ入力）' : 'github_pat_…';
     syncStatus();
+  })();
+
+  /* ---------- 生徒一覧（非公開リポジトリの students.json に保存） ---------- */
+  const SD = { list: [], sha: null, loaded: false };
+  const decodeB64 = (s) => decodeURIComponent(escape(atob(s.replace(/\s/g, ''))));
+  function sdConf() { const c = ghConf(); return { owner: c.owner || '', repo: c.dataRepo || 'study-abroad-gpa_data', token: c.token || '' }; }
+  function sdApi(path, opt) {
+    const c = sdConf(); opt = opt || {};
+    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}${path}`, {
+      ...opt, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json', ...(opt.body ? { 'Content-Type': 'application/json' } : {}) },
+    });
+  }
+  function sdMsg(t, bad) { const e = $('sd-status'); e.textContent = t; e.style.color = bad ? 'var(--danger)' : 'var(--sub)'; }
+  async function sdLoad() {
+    const c = sdConf();
+    if (!c.owner || !c.token) throw new Error('アカウント名とトークンを入力してください');
+    const rr = await sdApi('');
+    if (!rr.ok) throw new Error(rr.status === 401 ? 'トークンが正しくない、または期限切れです' : 'リポジトリを開けません。名前と、トークンの対象リポジトリを確認してください');
+    if ((await rr.json()).private !== true) throw new Error('このリポジトリは公開(Public)です。個人情報を守るため使えません。Privateのリポジトリを指定してください');
+    const r = await sdApi('/contents/students.json');
+    if (r.status === 404) { SD.list = []; SD.sha = null; }
+    else if (r.ok) { const j = await r.json(); SD.sha = j.sha; SD.list = JSON.parse(decodeB64(j.content)); }
+    else throw new Error('一覧を読み込めませんでした（' + r.status + '）');
+    SD.loaded = true;
+  }
+  async function sdMutate(fn, message) {
+    for (let i = 0; i < 3; i++) {
+      if (!SD.loaded || i > 0) await sdLoad();
+      const next = fn(SD.list.map((x) => ({ ...x })));
+      const body = { message, content: b64(JSON.stringify(next, null, 2) + '\n') };
+      if (SD.sha) body.sha = SD.sha;
+      const r = await sdApi('/contents/students.json', { method: 'PUT', body: JSON.stringify(body) });
+      if (r.ok) { SD.sha = (await r.json()).content.sha; SD.list = next; return; }
+      if (r.status !== 409 && r.status !== 422)
+        throw new Error(r.status === 403 || r.status === 404 ? '書き込めません。トークンの権限（Contents: Read and write）と対象リポジトリを確認してください' : '保存に失敗しました（' + r.status + '）');
+    }
+    throw new Error('他のパソコンと同時に保存したため失敗しました。もう一度お試しください');
+  }
+  async function sdConnect() {
+    const c = ghConf();
+    const owner = $('sd-owner').value.trim(), dataRepo = $('sd-repo').value.trim(), token = $('sd-token').value.trim() || c.token;
+    localStorage.setItem(GH_KEY, JSON.stringify({ ...c, owner, dataRepo, token }));
+    sdMsg('読み込み中…');
+    try { await sdLoad(); sdMsg(`接続しました（${SD.list.length}件）`); $('sd-token').value = ''; $('sd-token').placeholder = '（保存済み）'; }
+    catch (err) { SD.loaded = false; sdMsg(err.message, true); }
+    renderStudents();
+  }
+  const newId = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+  function sdLabel(rec) {
+    const r = judge({ dep: rec.dep, ret: rec.ret, cals, exam: rec.exam || 'auto' });
+    if (r.status === 'ok') return TYPES[r.option.typeId].label;
+    if (r.status === 'E') return '短期E型（要協議）';
+    if (r.status === 'ambiguous' && rec.pick) return TYPES[rec.pick].label;
+    return rec.typeId ? TYPES[rec.typeId].label + '（保存時）' : '要確認';
+  }
+  async function saveCurrent() {
+    const msg = $('save-msg'), v = inputs();
+    const res = judge({ dep: v.dep, ret: v.ret, cals, exam: v.exam });
+    const typeId = res.status === 'ok' ? res.option.typeId : res.status === 'E' ? 'S-E' : (res.status === 'ambiguous' && state.pick) || null;
+    if (!v.name.trim()) { msg.textContent = '氏名を入力してから保存してください'; msg.style.color = 'var(--danger)'; return; }
+    if (!typeId) { msg.textContent = '判定が確定してから保存してください'; msg.style.color = 'var(--danger)'; return; }
+    msg.style.color = 'var(--sub)'; msg.textContent = '保存中…';
+    const rec = { id: state.currentId || null, name: v.name.trim(), dep: v.dep, ret: v.ret, exam: v.exam, pick: state.pick || null, typeId, memo: $('f-memo').value.trim(), updated: new Date().toISOString() };
+    try {
+      await sdMutate((list) => {
+        let i = rec.id ? list.findIndex((x) => x.id === rec.id) : list.findIndex((x) => x.name === rec.name && x.dep === rec.dep);
+        if (i >= 0) rec.id = list[i].id; else rec.id = newId();
+        if (i >= 0) list[i] = rec; else list.push(rec);
+        return list;
+      }, `${rec.name} を保存`);
+      state.currentId = rec.id;
+      msg.textContent = `保存しました：${rec.name}（${TYPES[typeId].label}）`; renderStudents();
+    } catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = err.message; }
+  }
+  function renderStudents() {
+    $('sd-panel').hidden = !SD.loaded;
+    if (!SD.loaded) return;
+    const q = $('sd-q').value.trim().toLowerCase();
+    const list = SD.list.filter((r) => !q || (r.name + ' ' + (r.memo || '')).toLowerCase().includes(q)).sort((a, b) => (a.updated < b.updated ? 1 : -1));
+    if (!list.length) { $('sd-list').innerHTML = '<div class="empty">保存された生徒はまだいません。個別判定で「判定を保存」を押すと、ここに並びます。</div>'; return; }
+    $('sd-list').innerHTML = '<div class="scroll"><table class="res"><thead><tr><th>氏名</th><th>出発日</th><th>帰国日</th><th>判定</th><th>メモ</th><th>更新</th><th></th></tr></thead><tbody>' +
+      list.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.dep)}</td><td>${esc(r.ret)}</td><td class="t">${esc(sdLabel(r))}</td><td>${esc(r.memo || '')}</td><td>${esc((r.updated || '').slice(0, 10))}</td>
+        <td style="white-space:nowrap"><button class="ghost" data-open="${esc(r.id)}">開く</button> <button class="ghost danger" data-del="${esc(r.id)}">削除</button></td></tr>`).join('') + '</tbody></table></div>';
+  }
+  $('sd-connect').addEventListener('click', sdConnect);
+  $('sd-q').addEventListener('input', renderStudents);
+  $('sd-list').addEventListener('click', async (e) => {
+    const o = e.target.closest('[data-open]'), d = e.target.closest('[data-del]');
+    if (o) {
+      const r = SD.list.find((x) => x.id === o.dataset.open); if (!r) return;
+      $('f-name').value = r.name; $('f-dep').value = r.dep; $('f-ret').value = r.ret; $('f-exam').value = r.exam || 'auto'; $('f-memo').value = r.memo || '';
+      state.pick = r.pick || null; state.currentId = r.id; renderSingle(); setTab('single'); window.scrollTo(0, 0);
+      $('save-msg').style.color = 'var(--sub)'; $('save-msg').textContent = `「${r.name}」を開いています。保存すると上書きされます。`;
+    }
+    if (d) {
+      const r = SD.list.find((x) => x.id === d.dataset.del); if (!r || !confirm(`「${r.name}」を一覧から削除します。よろしいですか？`)) return;
+      try { await sdMutate((list) => list.filter((x) => x.id !== r.id), `${r.name} を削除`); renderStudents(); sdMsg('削除しました'); }
+      catch (err) { sdMsg(err.message, true); }
+    }
+  });
+  $('sd-csv').addEventListener('click', () => {
+    const lines = ['氏名,出発日,帰国日,判定,メモ,更新日'].concat(SD.list.map((r) => [r.name, r.dep, r.ret, sdLabel(r), r.memo || '', (r.updated || '').slice(0, 10)].map(q).join(',')));
+    download('留学生_保存一覧.csv', lines.join('\n') + '\n');
+  });
+  $('f-clear').addEventListener('click', () => {
+    ['f-name', 'f-dep', 'f-ret', 'f-memo'].forEach((id) => { $(id).value = ''; });
+    $('f-exam').value = 'auto'; state.pick = null; state.currentId = null; $('save-msg').textContent = ''; renderSingle();
+  });
+  (function initSd() {
+    const c = ghConf(), g = guessRepo();
+    $('sd-owner').value = c.owner || g.owner; $('sd-repo').value = c.dataRepo || 'study-abroad-gpa_data';
+    $('sd-token').placeholder = c.token ? '（保存済み。変えるときだけ入力）' : 'github_pat_…';
   })();
 
   renderSingle(); renderRef(); renderCal();
