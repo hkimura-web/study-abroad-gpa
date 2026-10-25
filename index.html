@@ -15,6 +15,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="single" class="on">個別判定</button>
     <button data-tab="batch">CSV一括判定</button>
+    <button data-tab="students">生徒一覧</button>
     <button data-tab="ref">早見表</button>
     <button data-tab="cal">学校暦設定</button>
   </nav>
@@ -35,8 +36,11 @@
             <option value="some">未受験の科目がある（C-1）</option>
           </select>
         </label>
+        <label>メモ（任意）<input id="f-memo" type="text" placeholder="例：2年3組"></label>
       </div>
+      <div class="row"><button id="f-clear" class="ghost">入力をクリア（新しい生徒）</button></div>
     </div>
+    <div id="save-msg" class="small no-print"></div>
     <div id="calwarn" class="notice no-print" hidden>学校暦が初期値（仮の例）のままです。「学校暦設定」で実際の日程に直すと、休業期間や試験期間の判定が正確になります。</div>
     <div id="result"></div>
   </section>
@@ -52,6 +56,28 @@
       <p class="small">列：氏名, 出発日, 帰国日（日付は 2026-07-25 や 2026/7/25 の形式）。任意で「期末受験」列（全/未）。Excelで保存したCSV（Shift_JIS）もそのまま読めます。</p>
     </div>
     <div id="batch-result"></div>
+  </section>
+
+  <!-- 生徒一覧 -->
+  <section id="tab-students" class="tab">
+    <div class="panel">
+      <p class="lead">個別判定で保存した生徒の一覧です。どのパソコンからでも見られます。</p>
+      <p class="small" style="margin:0 0 10px">氏名などの個人情報は、<b>非公開(Private)のリポジトリ</b>にだけ保存します。公開(Public)のリポジトリには保存できません。</p>
+      <div class="fields">
+        <label>GitHubのアカウント名<input id="sd-owner" type="text" autocomplete="off"></label>
+        <label>保存用リポジトリ名（Private）<input id="sd-repo" type="text" autocomplete="off" value="study-abroad-gpa_data"></label>
+        <label>アクセストークン<input id="sd-token" type="password" autocomplete="off"></label>
+      </div>
+      <div class="row"><button id="sd-connect">接続して一覧を読み込む</button></div>
+      <p id="sd-status" class="small"></p>
+    </div>
+    <div class="panel" id="sd-panel" hidden>
+      <div class="row">
+        <input id="sd-q" type="text" placeholder="氏名・メモで検索">
+        <button id="sd-csv" class="ghost">一覧をCSVで保存</button>
+      </div>
+      <div id="sd-list"></div>
+    </div>
   </section>
 
   <!-- 早見表 -->
